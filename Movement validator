@@ -1,0 +1,200 @@
+local MovementValidator = {}
+
+local movementPlayer = {}
+local StarterGui = game:GetService("StarterGui")
+
+local MAX_SPEED = 50
+local MAX_HEIGHT = 50
+local MAX_VERTICALSPEED = 100
+
+local moduleban = require(script.Parent.BanModule)
+
+function MovementValidator:Initialize(player)
+	movementPlayer[player.UserId] = {
+		lastPosition = nil,
+		lastTimes = 0,
+		airTime = 0,
+		groudtimes = 0,
+		violation = 0,
+		warning = 0,
+	}
+end
+
+function MovementValidator:CheckMovement(player)
+	if not player  then
+		return false
+	end
+	local character = player.Character 
+	if not character  then
+		return false
+	end
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp  then
+		return false
+	end
+	
+	local data = movementPlayer[player.UserId]
+	
+	if not data then
+		self:Initialize(player)
+		data = movementPlayer[player.UserId]
+	end
+	
+	local currentsPosition = hrp.Position
+	local currentTimes = tick()
+	
+	
+	if not movementPlayer[player.UserId].lastPosition then
+		movementPlayer[player.UserId].lastPosition = currentsPosition
+		movementPlayer[player.UserId].lastTimes = currentTimes
+	end
+	
+	
+	local deltaTimes = currentTimes - data.lastTimes
+	
+	if deltaTimes <= 0 then
+		return 
+	end
+		
+	
+	-- 1
+	
+	local distancehorizontal = Vector3.new(
+		currentsPosition.X - data.lastPosition.X,
+		0,
+		currentsPosition.Z - data.lastPosition.Z
+	).Magnitude
+	local speedHorizontal = distancehorizontal / deltaTimes
+	
+	if speedHorizontal >= MAX_SPEED then
+		warn("Joueurs trop rapide Attention "..player.Name)
+		data.warning = data.warning + 1
+		if data.warning > 3 then
+			data.warning = 0
+			self:TeleportSafeZone(player)
+		end
+	end
+	
+	
+	-- 2
+	
+	local distance = (currentsPosition - data.lastPosition).Magnitude
+	local speed = distance / deltaTimes
+	
+	if speed >= MAX_SPEED and deltaTimes > 0.1 then
+		warn("Joueurs trop rapide Attention "..player.Name)
+		self:TeleportSafeZone(player)
+	end
+	
+	-- 3
+	local distanceVertical = Vector3.new(
+		0,
+		currentsPosition.Y - data.lastPosition.Y,
+		0
+	).Magnitude
+	
+	local speedvertical = distanceVertical / deltaTimes
+	local grouded = self:Grounded(player)
+	if grouded then
+		data.groudtimes = data.groudtimes + deltaTimes
+		data.airTime = 0
+	else
+		data.airTime = data.airTime + deltaTimes
+		data.groudtimes = 0
+		if data.airTime > 2 and speedvertical >= MAX_VERTICALSPEED then
+			warn("Joueurs trop rapide Attention "..player.Name)
+			self:TeleportSafeZone(player)
+		end
+	end
+	
+	-- 4 
+	
+	if math.abs(currentsPosition.X) > 1000 or math.abs(currentsPosition.Y) > 1000 or math.abs(currentsPosition.Z) > 1000 then
+		warn("Joueurs trop rapide Attention "..player.Name)
+		self:TeleportSafeZone(player)
+	end
+	
+	
+	data.lastPosition = currentsPosition
+	data.lastTimes = currentTimes
+	
+end
+
+
+function MovementValidator:TeleportSafeZone(player)
+	if not player then
+		return false
+	end
+	local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+	
+	if not hrp then
+		return false
+	end
+	
+	
+	local safezone = workspace.SpawnLocation.CFrame.Position
+	
+	hrp.CFrame = CFrame.new(safezone)
+	
+	self:HandleViolation(player)
+	
+end
+
+
+function MovementValidator:HandleViolation(player)
+	local data = movementPlayer[player.UserId]
+	if not data then
+		return
+	end
+	data.violation = data.violation + 1
+	if data.violation == 1 then
+		self:Warning(player,"Attention Premier Avertissement")
+	elseif data.violation == 3 then
+		self:Warning(player,"Attention Deuxieme Avertissement")
+		player:Kick("Bug ou cheat Reconnecter vous")
+	elseif data.violation == 5 then
+		self:Ban(player,"MovementCheat","Cheat")
+	end
+	
+end
+function MovementValidator:Warning(player,message : string)
+	if not player then
+		return false
+	end
+	
+	local remotes = game.ReplicatedStorage.Shared.Remotes:FindFirstChild("Warning")
+	if not remotes then
+		return false
+	end
+	
+	
+	remotes:FireClient(player,message)
+	
+end
+function MovementValidator:Clear(player)
+	if movementPlayer[player.UserId] then
+		movementPlayer[player.UserId] = nil
+	end
+end
+function MovementValidator:Grounded(player)
+	if not player then
+		return false
+	end
+	local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+	if not hrp  then
+		return false
+	end
+	
+	local origine = hrp.Position
+	local direction = Vector3.new(0,-10,0)
+	
+	local params = RaycastParams.new()
+	params.FilterDescendantsInstances = {player.Character}
+	params.FilterType = Enum.RaycastFilterType.Exclude
+	
+	local raysult = workspace:Raycast(origine,direction,params)
+	
+	return raysult and raysult.Distance < 6
+end
+
+return MovementValidator
